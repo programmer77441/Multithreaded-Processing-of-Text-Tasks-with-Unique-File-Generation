@@ -3,14 +3,17 @@
 #include <time.h>
 #include <omp.h>
 #include <string.h>
-#include <windows.h> 
 
-#define NUM_TASKS 10
-#define NUM_FILES 5
-#define TASKS_PER_FILE 2
+#ifdef _WIN32
+#include <windows.h>  
+#endif
 
-// function for reading from file
-void read_tasks(const char* filename, char tasks[NUM_TASKS][100]) {
+#define NUM_TASKS 10      // 10 tasks
+#define NUM_FILES 5       // 5 files
+#define TASKS_PER_FILE 2  // 2 tasks per file
+
+// Function to read tasks from the file
+void read_tasks(const char* filename, char tasks[NUM_TASKS][10]) {
     FILE* file = NULL;
     if (fopen_s(&file, filename, "r") != 0 || file == NULL) {
         printf("Can not open this file!\n");
@@ -18,14 +21,14 @@ void read_tasks(const char* filename, char tasks[NUM_TASKS][100]) {
     }
 
     for (int i = 0; i < NUM_TASKS; i++) {
-        fgets(tasks[i], 100, file);
+        fgets(tasks[i], 10, file);
     }
 
     fclose(file);
 }
 
-//function for writing tasks in new files
-void write_tasks_to_file(int file_id, char task1[100], char task2[100]) {
+// Function to save tasks to a new file
+void write_tasks_to_file(int file_id, char tasks[TASKS_PER_FILE][100]) {
     FILE* file = NULL;
     char filename[100];
     snprintf(filename, sizeof(filename), "tasks_%d.txt", file_id);
@@ -35,17 +38,18 @@ void write_tasks_to_file(int file_id, char task1[100], char task2[100]) {
         exit(1);
     }
 
-    fprintf(file, "%s", task1);
-    fprintf(file, "%s", task2);
+    for (int i = 0; i < TASKS_PER_FILE; i++) {
+        fprintf(file, "%s", tasks[i]);
+    }
 
     fclose(file);
 }
 
-// Function to distribute tasks in 5 files without repetitions 
+//Function to distribute tasks into 5 files without repetitions
 void distribute_tasks(char tasks[NUM_TASKS][100]) {
     int task_indices[NUM_TASKS]; 
     for (int i = 0; i < NUM_TASKS; i++) {
-        task_indices[i] = i;
+        task_indices[i] = i; 
     }
 
     for (int i = NUM_TASKS - 1; i > 0; i--) {
@@ -58,20 +62,34 @@ void distribute_tasks(char tasks[NUM_TASKS][100]) {
 #pragma omp parallel num_threads(NUM_FILES)
     {
         int thread_id = omp_get_thread_num();
-        int task1_index = task_indices[2 * thread_id]; 
-        int task2_index = task_indices[2 * thread_id + 1]; 
+        int start_index = thread_id * TASKS_PER_FILE;
+        int task_indices_for_file[TASKS_PER_FILE];
 
-        write_tasks_to_file(thread_id + 1, tasks[task1_index], tasks[task2_index]);
+        DWORD_PTR affinity_mask = (1 << thread_id); 
+        SetThreadAffinityMask(GetCurrentThread(), affinity_mask);
+
+        int core_id = GetCurrentProcessorNumber();
+
+        for (int i = 0; i < TASKS_PER_FILE; i++) {
+            task_indices_for_file[i] = task_indices[start_index + i];
+        }
+
+        char tasks_for_file[TASKS_PER_FILE][100];
+        for (int i = 0; i < TASKS_PER_FILE; i++) {
+            strcpy_s(tasks_for_file[i], sizeof(tasks_for_file[i]), tasks[task_indices_for_file[i]]);
+        }
+
+        write_tasks_to_file(thread_id + 1, tasks_for_file);
     }
 }
 
 int main() {
     char tasks[NUM_TASKS][100];
 
-    // Четене на задачите от файла
     read_tasks("tasks.txt", tasks);
 
-    // Разпределяне на задачите в 5 файла без повторения
+    srand(time(NULL));
+
     distribute_tasks(tasks);
 
     return 0;
